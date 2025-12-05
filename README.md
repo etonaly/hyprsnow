@@ -15,6 +15,15 @@ cargo run
 cargo build --release
 cp target/release/hyprsnow ~/.local/bin/
 ```
+OR
+```
+cargo install hyprsnow
+```
+OR
+
+```
+cargo install --path .
+```
 
 ## Usage
 
