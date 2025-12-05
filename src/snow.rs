@@ -1,5 +1,6 @@
 use crate::config::SnowConfig;
 use crate::hyprland::{get_hyprland_windows, get_screen_size, spawn_event_listener, WindowRect};
+use hyprland::shared::Address;
 use iced::mouse::Cursor;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Theme};
@@ -12,7 +13,11 @@ use std::time::{Duration, Instant};
 #[derive(Clone)]
 enum SnowState {
     Falling,
-    Landed { melt_timer: f32 },
+    Landed {
+        melt_timer: f32,
+        window_addr: Option<Address>,
+        offset_x: f32,
+    },
 }
 
 struct Snowflake {
@@ -143,7 +148,11 @@ impl Application for Waysnow {
                                 if flake.x >= window.x && flake.x <= window.x + window.width {
                                     if flake_bottom >= window.y && flake.y < window.y + 10.0 {
                                         flake.y = window.y - flake.radius;
-                                        flake.state = SnowState::Landed { melt_timer: 0.0 };
+                                        flake.state = SnowState::Landed {
+                                            melt_timer: 0.0,
+                                            window_addr: Some(window.address.clone()),
+                                            offset_x: flake.x - window.x,
+                                        };
                                         landed = true;
                                         break;
                                     }
@@ -152,10 +161,32 @@ impl Application for Waysnow {
 
                             if !landed && flake.y > self.height - flake.radius {
                                 flake.y = self.height - flake.radius;
-                                flake.state = SnowState::Landed { melt_timer: 0.0 };
+                                flake.state = SnowState::Landed {
+                                    melt_timer: 0.0,
+                                    window_addr: None,
+                                    offset_x: 0.0,
+                                };
                             }
                         }
-                        SnowState::Landed { melt_timer } => {
+                        SnowState::Landed {
+                            melt_timer,
+                            window_addr,
+                            offset_x,
+                        } => {
+                            // Update position if landed on a window
+                            if let Some(addr) = window_addr {
+                                if let Some(window) =
+                                    self.windows.iter().find(|w| &w.address == addr)
+                                {
+                                    flake.x = window.x + *offset_x;
+                                    flake.y = window.y - flake.radius;
+                                } else {
+                                    // Window was closed - start falling again
+                                    flake.state = SnowState::Falling;
+                                    continue;
+                                }
+                            }
+
                             *melt_timer += dt;
                             let melt_progress = *melt_timer / melt_duration;
                             flake.opacity = (1.0 - melt_progress).max(0.0) * 0.9;

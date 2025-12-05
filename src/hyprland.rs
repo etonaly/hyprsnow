@@ -1,11 +1,13 @@
-use hyprland::data::{Clients, Monitor, Monitors};
+use hyprland::data::{Clients, Monitor, Monitors, Workspace};
 use hyprland::event_listener::AsyncEventListener;
 use hyprland::prelude::*;
+use hyprland::shared::Address;
 use std::sync::mpsc;
 use std::thread;
 
 #[derive(Clone)]
 pub struct WindowRect {
+    pub address: Address,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -34,10 +36,17 @@ pub fn get_screen_size() -> (f32, f32) {
 }
 
 pub fn get_hyprland_windows() -> Vec<WindowRect> {
+    let active_workspace_id = match Workspace::get_active() {
+        Ok(ws) => ws.id,
+        Err(_) => return Vec::new(),
+    };
+
     match Clients::get() {
         Ok(clients) => clients
             .iter()
+            .filter(|c| c.workspace.id == active_workspace_id)
             .map(|c| WindowRect {
+                address: c.address.clone(),
                 x: c.at.0 as f32,
                 y: c.at.1 as f32,
                 width: c.size.0 as f32,
