@@ -12,13 +12,14 @@ repository = "https://github.com/spinualexandru/hyprsnow"
 license = "MIT"
 
 [dependencies]
-iced = { version = "0.13.1", features = ["canvas", "smol"] }
-iced_layershell = "0.13.7"
+iced = { version = "0.14.0", features = ["canvas", "smol"] }
+iced_layershell = "0.14.0-beta3"
 clap = { version = "4", features = ["derive"] }
-rand = "0.8"
+rand = "0.10.0-rc.5"
 hyprland = "0.4.0-beta.3"
 tokio = { version = "1", features = ["rt", "sync"] }
 hyprlang = { version = "0.3.0", features = ["mutation"] }
+notify = "8.2.0"
 
 [[bin]]
 name = "hyprsnow"
