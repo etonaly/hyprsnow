@@ -1,14 +1,14 @@
 use crate::config::SnowConfig;
 use crate::hyprland::{
-    get_hyprland_windows, get_monitors_with_fullscreen_state, get_screen_size,
-    spawn_event_listener, MonitorRect, WindowRect,
+    MonitorRect, WindowRect, get_hyprland_windows, get_monitors_with_fullscreen_state,
+    get_total_screen_bounds, spawn_event_listener,
 };
 use hyprland::shared::Address;
 use iced::mouse::Cursor;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Theme};
-use iced_layershell::to_layer_message;
 use iced_layershell::Application;
+use iced_layershell::to_layer_message;
 use rand::Rng;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -67,6 +67,8 @@ pub struct Waysnow {
     event_rx: mpsc::Receiver<crate::hyprland::HyprlandEvent>,
     last_tick: Instant,
     time: f32,
+    offset_x: f32,
+    offset_y: f32,
     width: f32,
     height: f32,
     config: SnowConfig,
@@ -76,11 +78,15 @@ pub struct Waysnow {
 impl Waysnow {
     fn is_in_fullscreen_monitor(&self, x: f32, y: f32) -> bool {
         for monitor in &self.monitors {
+            // Adjust monitor coords from global to overlay space
+            let mon_x = monitor.x - self.offset_x;
+            let mon_y = monitor.y - self.offset_y;
+
+            // Hide snowflakes in the entire column above/within fullscreen monitors
             if monitor.has_fullscreen
-                && x >= monitor.x
-                && x < monitor.x + monitor.width
-                && y >= monitor.y
-                && y < monitor.y + monitor.height
+                && x >= mon_x
+                && x < mon_x + monitor.width
+                && y < mon_y + monitor.height
             {
                 return true;
             }
@@ -103,7 +109,9 @@ impl Application for Waysnow {
 
     fn new(config: Self::Flags) -> (Self, iced::Task<Self::Message>) {
         let mut rng = rand::thread_rng();
-        let (width, height) = get_screen_size();
+        let (min_x, min_y, max_x, max_y) = get_total_screen_bounds();
+        let width = max_x - min_x;
+        let height = max_y - min_y;
         let count = config.intensity as usize * 50;
 
         let snowflakes = (0..count)
@@ -122,6 +130,8 @@ impl Application for Waysnow {
                 event_rx,
                 last_tick: Instant::now(),
                 time: 0.0,
+                offset_x: min_x,
+                offset_y: min_y,
                 width,
                 height,
                 config,
@@ -135,6 +145,7 @@ impl Application for Waysnow {
         String::from("hyprsnow")
     }
 
+    #[allow(clippy::single_match)]
     fn update(&mut self, message: Self::Message) -> iced::Task<Self::Message> {
         match message {
             Message::Tick(now) => {
@@ -151,12 +162,22 @@ impl Application for Waysnow {
                 let mut rng = rand::thread_rng();
                 let melt_duration = 4.0;
 
+                // Precompute valid x ranges (monitors without fullscreen) for spawning
+                let valid_x_ranges: Vec<(f32, f32)> = self
+                    .monitors
+                    .iter()
+                    .filter(|m| !m.has_fullscreen)
+                    .map(|m| {
+                        let mon_x = m.x - self.offset_x;
+                        (mon_x, mon_x + m.width)
+                    })
+                    .collect();
+
                 for flake in &mut self.snowflakes {
                     match &mut flake.state {
                         SnowState::Falling => {
                             flake.y += flake.speed * dt;
-                            flake.x +=
-                                (self.time + flake.phase).sin() * flake.drift_amount * dt;
+                            flake.x += (self.time + flake.phase).sin() * flake.drift_amount * dt;
 
                             if flake.x < 0.0 {
                                 flake.x = self.width;
@@ -168,17 +189,19 @@ impl Application for Waysnow {
                             let mut landed = false;
 
                             for window in &self.windows {
-                                if flake.x >= window.x && flake.x <= window.x + window.width {
-                                    if flake_bottom >= window.y && flake.y < window.y + 10.0 {
-                                        flake.y = window.y - flake.radius;
-                                        flake.state = SnowState::Landed {
-                                            melt_timer: 0.0,
-                                            window_addr: Some(window.address.clone()),
-                                            offset_x: flake.x - window.x,
-                                        };
-                                        landed = true;
-                                        break;
-                                    }
+                                if flake.x >= window.x
+                                    && flake.x <= window.x + window.width
+                                    && flake_bottom >= window.y
+                                    && flake.y < window.y + 10.0
+                                {
+                                    flake.y = window.y - flake.radius;
+                                    flake.state = SnowState::Landed {
+                                        melt_timer: 0.0,
+                                        window_addr: Some(window.address.clone()),
+                                        offset_x: flake.x - window.x,
+                                    };
+                                    landed = true;
+                                    break;
                                 }
                             }
 
@@ -226,6 +249,11 @@ impl Application for Waysnow {
 
                             if *melt_timer >= melt_duration {
                                 flake.reset_at_top(self.width, &self.config, &mut rng);
+                                // Spawn in non-fullscreen area if possible
+                                if !valid_x_ranges.is_empty() {
+                                    let range = &valid_x_ranges[rng.gen_range(0..valid_x_ranges.len())];
+                                    flake.x = rng.gen_range(range.0..range.1);
+                                }
                             }
                         }
                     }
@@ -269,24 +297,26 @@ impl canvas::Program<Message> for Waysnow {
         bounds: Rectangle,
         _cursor: Cursor,
     ) -> Vec<Geometry> {
-        let geometry = self.cache.draw(renderer, bounds.size(), |frame: &mut Frame| {
-            for flake in &self.snowflakes {
-                // Skip snowflakes on monitors with fullscreen apps
-                if self.is_in_fullscreen_monitor(flake.x, flake.y) {
-                    continue;
+        let geometry = self
+            .cache
+            .draw(renderer, bounds.size(), |frame: &mut Frame| {
+                for flake in &self.snowflakes {
+                    // Skip snowflakes on monitors with fullscreen apps
+                    if self.is_in_fullscreen_monitor(flake.x, flake.y) {
+                        continue;
+                    }
+
+                    let color = Color {
+                        r: 1.0,
+                        g: 1.0,
+                        b: 1.0,
+                        a: flake.opacity,
+                    };
+
+                    let circle = Path::circle(Point::new(flake.x, flake.y), flake.radius);
+                    frame.fill(&circle, color);
                 }
-
-                let color = Color {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                    a: flake.opacity,
-                };
-
-                let circle = Path::circle(Point::new(flake.x, flake.y), flake.radius);
-                frame.fill(&circle, color);
-            }
-        });
+            });
 
         vec![geometry]
     }

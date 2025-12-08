@@ -1,4 +1,4 @@
-use hyprland::data::{Clients, Monitor, Monitors, Workspace, Workspaces};
+use hyprland::data::{Clients, Monitors, Workspace, Workspaces};
 use hyprland::event_listener::AsyncEventListener;
 use hyprland::prelude::*;
 use hyprland::shared::Address;
@@ -27,20 +27,28 @@ pub enum HyprlandEvent {
     WindowsChanged,
 }
 
-pub fn get_screen_size() -> (f32, f32) {
-    match Monitor::get_active() {
-        Ok(monitor) => (monitor.width as f32, monitor.height as f32),
-        Err(_) => {
-            // Fallback: try to get first monitor
-            match Monitors::get() {
-                Ok(monitors) => monitors
-                    .iter()
-                    .next()
-                    .map(|m| (m.width as f32, m.height as f32))
-                    .unwrap_or((1920.0, 1080.0)),
-                Err(_) => (1920.0, 1080.0),
+pub fn get_total_screen_bounds() -> (f32, f32, f32, f32) {
+    match Monitors::get() {
+        Ok(monitors) => {
+            let mut min_x = i32::MAX;
+            let mut min_y = i32::MAX;
+            let mut max_x = i32::MIN;
+            let mut max_y = i32::MIN;
+
+            for m in monitors.iter() {
+                min_x = min_x.min(m.x);
+                min_y = min_y.min(m.y);
+                max_x = max_x.max(m.x + m.width as i32);
+                max_y = max_y.max(m.y + m.height as i32);
             }
+
+            if min_x == i32::MAX {
+                return (0.0, 0.0, 1920.0, 1080.0);
+            }
+
+            (min_x as f32, min_y as f32, max_x as f32, max_y as f32)
         }
+        Err(_) => (0.0, 0.0, 1920.0, 1080.0),
     }
 }
 
