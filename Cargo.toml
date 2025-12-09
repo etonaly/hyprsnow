@@ -12,7 +12,7 @@ repository = "https://github.com/spinualexandru/hyprsnow"
 license = "MIT"
 
 [dependencies]
-iced = { version = "0.14.0", features = ["canvas", "smol"] }
+iced = { version = "0.14.0", features = ["canvas", "smol", "image"] }
 iced_layershell = "0.14.0-beta3"
 clap = { version = "4", features = ["derive"] }
 rand = "0.10.0-rc.5"

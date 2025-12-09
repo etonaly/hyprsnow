@@ -31,4 +31,10 @@ pub struct Args {
     /// Maximum snowflake opacity (0.0-1.0, default 1.0)
     #[arg(long)]
     pub max_opacity: Option<f32>,
+
+    /// Path to custom snowflake image
+    /// If not provided, default circle shape will be used
+    /// Make sure the image has a transparent background (e.g., PNG format)
+    #[arg(long)]
+    pub image_path: Option<String>,
 }

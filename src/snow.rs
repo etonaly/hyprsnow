@@ -4,6 +4,7 @@ use crate::hyprland::{
     get_total_screen_bounds, spawn_event_listener,
 };
 use hyprland::shared::Address;
+use iced::widget::image::Handle as ImageHandle;
 use iced::mouse::Cursor;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Task, Theme};
@@ -73,6 +74,7 @@ pub struct Waysnow {
     height: f32,
     config: SnowConfig,
     cache: canvas::Cache,
+    image_handle: Option<ImageHandle>,
 }
 
 impl Waysnow {
@@ -107,6 +109,18 @@ impl Waysnow {
         let mut rng = rand::rng();
         let old_count = self.config.intensity as usize * 50;
         let new_count = new_config.intensity as usize * 50;
+
+        if new_config.image_path != self.config.image_path {
+            if let Some(path) = &new_config.image_path {
+                println!("Loaded snowflake image path: {}", path);
+            }
+            self.image_handle = new_config
+                .image_path
+                .as_ref()
+                .map(|p| ImageHandle::from_path(p));
+
+            self.cache.clear();
+        }
 
         self.config = new_config;
 
@@ -149,6 +163,8 @@ pub fn boot(config: SnowConfig) -> (Waysnow, Task<Message>) {
     let event_rx = spawn_event_listener();
     let config_rx = spawn_config_watcher();
 
+    let image_handle = config.image_path.as_ref().map(|p| ImageHandle::from_path(p));
+
     (
         Waysnow {
             snowflakes,
@@ -164,6 +180,7 @@ pub fn boot(config: SnowConfig) -> (Waysnow, Task<Message>) {
             height,
             config,
             cache: canvas::Cache::default(),
+            image_handle,
         },
         Task::none(),
     )
@@ -306,14 +323,25 @@ impl canvas::Program<Message> for &Waysnow {
         bounds: Rectangle,
         _cursor: Cursor,
     ) -> Vec<Geometry> {
-        let geometry = self
-            .cache
-            .draw(renderer, bounds.size(), |frame: &mut Frame| {
-                for flake in &self.snowflakes {
-                    if self.is_in_fullscreen_monitor(flake.x, flake.y) {
-                        continue;
-                    }
-
+        let geometry = self.cache.draw(renderer, bounds.size(), |frame: &mut Frame| {
+            for flake in &self.snowflakes {
+                if self.is_in_fullscreen_monitor(flake.x, flake.y) {
+                    continue;
+                }
+                if let Some(ref handle) = self.image_handle {
+                    let size = flake.radius * 2.0;
+                    frame.with_save(|frame| {
+                        frame.draw_image(
+                            iced::Rectangle {
+                                x: flake.x - flake.radius,
+                                y: flake.y - flake.radius,
+                                width: size,
+                                height: size,
+                            },
+                            handle,
+                        );
+                    });
+                } else {
                     let color = Color {
                         r: 1.0,
                         g: 1.0,
@@ -324,7 +352,8 @@ impl canvas::Program<Message> for &Waysnow {
                     let circle = Path::circle(Point::new(flake.x, flake.y), flake.radius);
                     frame.fill(&circle, color);
                 }
-            });
+            }
+        });
 
         vec![geometry]
     }
